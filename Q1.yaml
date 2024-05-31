@@ -1,0 +1,242 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation Template to deploy VPC, Subnets, Route Tables, NAT Gateway, and EC2 Instances in us-east-2 region
+
+Parameters:
+  KeyName:
+    Description: "The name of the EC2 Key Pair to enable SSH access to the instances"
+    Type: "AWS::EC2::KeyPair::KeyName"
+    Default: "toktam-keypairs"
+    ConstraintDescription: "Must be the name of an existing EC2 Key Pair."
+
+  ImageId:
+    Description: "The AMI ID for the EC2 instances"
+    Type: "String"
+    Default: "ami-0647086318eb3b918"
+  
+  VpcCidr:
+    Description: "The CIDR block for the VPC"
+    Type: "String"
+    Default: "10.50.0.0/16"
+
+  PublicSubnet1Cidr:
+    Description: "The CIDR block for the first public subnet"
+    Type: "String"
+    Default: "10.50.1.0/24"
+
+  PublicSubnet2Cidr:
+    Description: "The CIDR block for the second public subnet"
+    Type: "String"
+    Default: "10.50.3.0/24"
+
+  PrivateSubnet1Cidr:
+    Description: "The CIDR block for the first private subnet"
+    Type: "String"
+    Default: "10.50.2.0/24"
+
+  PrivateSubnet2Cidr:
+    Description: "The CIDR block for the second private subnet"
+    Type: "String"
+    Default: "10.50.4.0/24"
+
+  InstanceType:
+    Description: "The EC2 instance type"
+    Type: "String"
+    Default: "t2.micro"
+    AllowedValues:
+      - "t2.micro"
+      - "t2.small"
+      - "t2.medium"
+    ConstraintDescription: "Must be a valid EC2 instance type."
+
+Resources:
+
+  MetroDDBTable:
+    Type: "AWS::DynamoDB::Table"
+    Properties: 
+      TableName: "metroddb"
+      AttributeDefinitions: 
+        - AttributeName: "Id"
+          AttributeType: "S"
+      KeySchema: 
+        - AttributeName: "Id"
+          KeyType: "HASH"
+      ProvisionedThroughput: 
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+
+  MyVPC:
+    Type: "AWS::EC2::VPC"
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: "MyVPC"
+
+
+  InternetGateway:
+    Type: "AWS::EC2::InternetGateway"
+    Properties: 
+      Tags:
+        - Key: Name
+          Value: "MyInternetGateway"
+
+  AttachGateway:
+    Type: "AWS::EC2::VPCGatewayAttachment"
+    Properties:
+      VpcId: !Ref MyVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: "PublicRouteTable"
+
+  PublicRoute:
+    Type: "AWS::EC2::Route"
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref InternetGateway
+
+  Subnet1:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: !Ref PublicSubnet1Cidr
+      AvailabilityZone: "us-east-2a"
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: "Subnet1"
+
+  Subnet2:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: !Ref PrivateSubnet1Cidr
+      AvailabilityZone: "us-east-2a"
+      Tags:
+        - Key: Name
+          Value: "Subnet2"
+
+  Subnet3:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: !Ref PublicSubnet2Cidr
+      AvailabilityZone: "us-east-2b"
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: "Subnet3"
+
+  Subnet4:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: !Ref PrivateSubnet2Cidr
+      AvailabilityZone: "us-east-2b"
+      Tags:
+        - Key: Name
+          Value: "Subnet4"
+
+  Subnet1RouteTableAssociation:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref Subnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  Subnet3RouteTableAssociation:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref Subnet3
+      RouteTableId: !Ref PublicRouteTable
+
+
+  EIP:
+    Type: "AWS::EC2::EIP"
+
+  NATGateway:
+    Type: "AWS::EC2::NatGateway"
+    Properties:
+      AllocationId: !GetAtt EIP.AllocationId
+      SubnetId: !Ref Subnet1
+
+
+  PrivateRouteTable:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: "PrivateRouteTable"
+
+  PrivateRoute:
+    Type: "AWS::EC2::Route"
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref NATGateway
+
+  Subnet2RouteTableAssociation:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref Subnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+  Subnet4RouteTableAssociation:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref Subnet4
+      RouteTableId: !Ref PrivateRouteTable
+
+  MySecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "Allow SSH and HTTP access"
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: "0.0.0.0/0"
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: "0.0.0.0/0"
+
+  PublicEC2Instance:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      InstanceType: !Ref InstanceType
+      SecurityGroupIds:
+        - !Ref MySecurityGroup
+      SubnetId: !Ref Subnet1
+      ImageId: !Ref ImageId
+      KeyName: !Ref KeyName
+
+  PrivateEC2Instance:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      InstanceType: !Ref InstanceType
+      SecurityGroupIds:
+        - !Ref MySecurityGroup
+      SubnetId: !Ref Subnet2
+      ImageId: !Ref ImageId
+      KeyName: !Ref KeyName
+
+Outputs:
+  PublicEC2InstanceId:
+    Description: "Instance ID of the public EC2 instance"
+    Value: !Ref PublicEC2Instance
+
+  PrivateEC2InstanceId:
+    Description: "Instance ID of the private EC2 instance"
+    Value: !Ref PrivateEC2Instance
